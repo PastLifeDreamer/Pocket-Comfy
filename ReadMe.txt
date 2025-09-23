@@ -35,5 +35,8 @@ smart-comfyui-gallery: https://github.com/biagiomaf/smart-comfyui-gallery
 
 More to come with future updates! 
 
+If you find this Web App usefull please consider supporting me. Tips are never necessary, but always appreciated. 
+
+<a href="https://www.buymeacoffee.com/pastlifedreamer" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-violet.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 
