@@ -2625,3 +2625,4 @@ try:
     register_gallery(app)
 except Exception as e:
     print('[GALLERY] integration error:', e)
+
