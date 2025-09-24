@@ -1,2 +1,9 @@
 Flask>=2.3
 psutil>=5.9
+Werkzeug>=2.3
+opencv-python>=4.8
+Pillow>=10.0
+numpy>=1.26
+Jinja2>=3.1
+itsdangerous>=2.1
+click>=8.1
