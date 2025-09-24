@@ -9,11 +9,13 @@ Mobile-first control panel for ComfyUI and companion tools for mobile and deskto
 ![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/LoginPage.GIF?raw=true) ![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/ControlePage.GIF?raw=true)
 
 
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
 What it does:
 
-Pocket Comfy unifies the best web apps currently available for content creation including: ComfyUI, ComfyUI Mini (Created by ImDarkTom), and smart-comfyui-gallery (Created by biagiomaf) into one web app that runs from a single Python window. Launch, monitor, and manage everything from one place at home or on the go. (Tailscale VPN recommended for use outside of your network)
+Pocket Comfy unifies the best web apps currently available for mobile first content creation including: ComfyUI, ComfyUI Mini (Created by ImDarkTom), and smart-comfyui-gallery (Created by biagiomaf) into one web app that runs from a single Python window. Launch, monitor, and manage everything from one place at home or on the go. (Tailscale VPN recommended for use outside of your network)
 
-
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 Key features
 
@@ -40,20 +42,44 @@ Key features
 \- Lightweight: Minimal deps. Fast start. Low overhead.
 
 
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+Typical install flow:
+
+1\. Make sure you have pre installed ComfyUI Mini, and smart-comfyui-gallery in your ComfyUI root Folder. (More info on this below)
+
+2\. Run the installer (Install_PocketComfy.bat) within the ComfyUI root folder to install dependencies.
+
+3\. Installer prompts to set paths and ports. (Default port options present and automatically listed. bypass for custom ports is a option)
+
+4\. Installer prompts to set Login/Delete password.
+
+5\. Run PocketComfy.bat to open up the all in one Python console.
+
+6\. Open Pocket Comfy on your phone or desktop using the provided IP and Port visible in the PocketComfy.bat Python window.
+
+7\. Save the web app to your phones home screen using your browsers share button for instant access whenever you need!
+
+8\. Launch tools, monitor status, create, and manage storage.
 
 
+Note: (Pocket Comfy does not include ComfyUI Mini, or Smart Gallery as part of the installer. Please download those from the creators and have them setup and functional before installing Pocket Comfy. You can find those web apps using the links below.)
 
-Typical flow
 
-1\. Run the installer within the ComfyUI root folder.
+ComfyUI MINI: https://github.com/ImDarkTom/ComfyUIMini 
 
-2\. Set paths and ports. (Default port options present and automatically listed. bypass for custom ports is a option)
 
-3\. Open Pocket Comfy on your phone or desktop.
+Smart-Comfyui-Gallery: https://github.com/biagiomaf/smart-comfyui-gallery
 
-4\. Launch tools, monitor status, create, and manage storage.
+
+Tailscale VPN recomended for seemless use of Pocket Comfy when outside of your home network: https://tailscale.com/
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
 
 Additional Example Images:
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/PhoneIcon.PNG?raw=true)
 
 ![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/Login.PNG?raw=true)
 
@@ -74,27 +100,11 @@ Additional Example Images:
 
 
 
-Note: (Pocket Comfy does not include ComfyUI Mini, or Smart Gallery as part of the installer. Please download those from the creators and have them setup and functional before installing Pocket Comfy. You can find those web apps using the links below.)
-
-
-
-ComfyUI MINI: https://github.com/ImDarkTom/ComfyUIMini 
-
-
-
-smart-comfyui-gallery: https://github.com/biagiomaf/smart-comfyui-gallery
-
-
-
-
-
 More to come with future updates! 
 
 
 
-
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 
 
