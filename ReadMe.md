@@ -1,8 +1,14 @@
 Pocket Comfy
 
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/pocket-comfy-hero.png?raw=true)
 
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/PocketComfyTemplate.png?raw=true)
 
 Mobile-first control panel for ComfyUI and companion tools for mobile and desktop. Lightweight, fast, and stylish.
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/LoginPage.GIF?raw=true)
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/ControlePage.GIF?raw=true)
 
 
 
@@ -42,7 +48,7 @@ Key features
 
 Typical flow
 
-1\. Run the installer.
+1\. Run the installer within the ComfyUI root folder.
 
 2\. Set paths and ports. (Default port options present and automatically listed. bypass for custom ports is a option)
 
@@ -50,6 +56,23 @@ Typical flow
 
 4\. Launch tools, monitor status, create, and manage storage.
 
+Additional Example Images:
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/Login.PNG?raw=true)
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/ControlPage.PNG?raw=true)
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/Functions.PNG?raw=true)
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/NetworkStatus.jpg?raw=true)
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/Mini.PNG?raw=true)
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/ImageGen.PNG?raw=true)
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/Gallery.PNG?raw=true)
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/ComfyUI.PNG?raw=true)
 
 
 
@@ -74,7 +97,7 @@ More to come with future updates!
 
 
 
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 
 
