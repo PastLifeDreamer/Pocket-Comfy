@@ -6,10 +6,7 @@ Pocket Comfy
 
 Mobile-first control panel for ComfyUI and companion tools for mobile and desktop. Lightweight, fast, and stylish.
 
-![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/LoginPage.GIF?raw=true)
-
-![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/ControlePage.GIF?raw=true)
-
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/LoginPage.GIF?raw=true) ![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/ControlePage.GIF?raw=true)
 
 
 What it does:
