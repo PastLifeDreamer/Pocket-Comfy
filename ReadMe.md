@@ -7,13 +7,13 @@ Mobile-first control panel for ComfyUI and companion tools for mobile and deskto
 ![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/LoginPage.GIF?raw=true) ![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/ControlePage.GIF?raw=true)
 
 
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 What it does:
 
 Pocket Comfy unifies the best web apps currently available for mobile first content creation including: ComfyUI, ComfyUI Mini (Created by ImDarkTom), and smart-comfyui-gallery (Created by biagiomaf) into one web app that runs from a single Python window. Launch, monitor, and manage everything from one place at home or on the go. (Tailscale VPN recommended for use outside of your network)
 
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 Key features
 
@@ -40,7 +40,7 @@ Key features
 \- Lightweight: Minimal deps. Fast start. Low overhead.
 
 
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 Typical install flow:
 
@@ -73,7 +73,7 @@ Smart-Comfyui-Gallery: https://github.com/biagiomaf/smart-comfyui-gallery
 
 Tailscale VPN recommended for seamless use of Pocket Comfy when outside of your home network: https://tailscale.com/
 
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 
 Additional Example Images:
@@ -106,7 +106,7 @@ More to come with future updates!
 
 
 
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 
 
