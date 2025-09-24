@@ -1,7 +1,5 @@
 Pocket Comfy
 
-![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/pocket-comfy-hero.png?raw=true)
-
 ![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/ExampleImages/PocketComfyTemplate.png?raw=true)
 
 Mobile-first control panel for ComfyUI and companion tools for mobile and desktop. Lightweight, fast, and stylish.
@@ -102,6 +100,9 @@ Additional Example Images:
 
 
 More to come with future updates! 
+
+
+![App Preview](https://github.com/PastLifeDreamer/Pocket-Comfy/blob/main/static/pocket-comfy-hero.png?raw=true)
 
 
 
