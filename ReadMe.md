@@ -62,6 +62,7 @@ Typical install flow:
 
 8\. Launch tools, monitor status, create, and manage storage.
 
+UpdatePocketComfy.bat included for easy updates. 
 
 Note: (Pocket Comfy does not include ComfyUI Mini, or Smart Gallery as part of the installer. Please download those from the creators and have them setup and functional before installing Pocket Comfy. You can find those web apps using the links below.)
 
