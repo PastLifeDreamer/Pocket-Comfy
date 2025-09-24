@@ -72,7 +72,7 @@ ComfyUI MINI: https://github.com/ImDarkTom/ComfyUIMini
 Smart-Comfyui-Gallery: https://github.com/biagiomaf/smart-comfyui-gallery
 
 
-Tailscale VPN recomended for seemless use of Pocket Comfy when outside of your home network: https://tailscale.com/
+Tailscale VPN recommended for seamless use of Pocket Comfy when outside of your home network: https://tailscale.com/
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
