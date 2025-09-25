@@ -19,6 +19,8 @@ Key features
 
 \- One-tap launches: Open ComfyUI Mini, ComfyUI, and Smart Gallery with a simple tap via the Pocket Comfy UI.
 
+\- Generate content, view and manage it from your phone with ease.
+
 \- Single window: One Python process controls all connected apps.
 
 \- Modern mobile UI: Clean layout, quick actions, large modern UI touch buttons.
