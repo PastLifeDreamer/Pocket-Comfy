@@ -9,6 +9,12 @@ Mobile-first control panel for ComfyUI and companion tools for mobile and deskto
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
+### **Donations:**
+
+###### If you find this Web App useful please consider supporting me. Donations are never necessary, but always appreciated. 
+
+Thank you!
+
 <a href="https://www.buymeacoffee.com/pastlifedreamer" target="\_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
@@ -122,28 +128,3 @@ More to come with future updates!
 
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
-
-
-
-### **Donations:**
-
-
-
-###### If you find this Web App useful please consider supporting me. Donations are never necessary, but always appreciated. 
-
-
-
-Thank you!
-
-
-
-<a href="https://www.buymeacoffee.com/pastlifedreamer" target="\_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
-
-
-
-
-
-
-
-
-
