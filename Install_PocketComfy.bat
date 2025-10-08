@@ -20,11 +20,45 @@ echo.
 set /p _c=Press Enter to continue... 
 
 :: ---------------- PYTHON DETECTION ----------------
+::
+:: Locate a suitable Python interpreter. Prefer the Windows "py" launcher with a
+:: specific version flag if available (3.12, 3.11, 3.10). If the py launcher is
+:: absent, fall back to python3/python. Store the command and optional version
+:: arguments separately to avoid quoting issues when invoking pip.
 set "PY_CALL="
-where py >NUL 2>&1 && (py -3.12 -V >NUL 2>&1 && set "PY_CALL=py -3.12")
-if not defined PY_CALL where py >NUL 2>&1 && (py -3.11 -V >NUL 2>&1 && set "PY_CALL=py -3.11")
-if not defined PY_CALL where py >NUL 2>&1 && (py -3.10 -V >NUL 2>&1 && set "PY_CALL=py -3.10")
+set "PY_ARGS="
 
+rem -- prefer the py launcher with an explicit version
+where py >NUL 2>&1 && (
+  py -3.12 -V >NUL 2>&1 && (
+    set "PY_CALL=py"
+    set "PY_ARGS=-3.12"
+  )
+)
+if not defined PY_CALL where py >NUL 2>&1 && (
+  py -3.11 -V >NUL 2>&1 && (
+    set "PY_CALL=py"
+    set "PY_ARGS=-3.11"
+  )
+)
+if not defined PY_CALL where py >NUL 2>&1 && (
+  py -3.10 -V >NUL 2>&1 && (
+    set "PY_CALL=py"
+    set "PY_ARGS=-3.10"
+  )
+)
+
+rem -- try python3 (common on Unix and some Windows setups)
+if not defined PY_CALL where python3 >NUL 2>&1 && (
+  python3 -V >NUL 2>&1 && set "PY_CALL=python3"
+)
+
+rem -- try plain python
+if not defined PY_CALL where python >NUL 2>&1 && (
+  python -V >NUL 2>&1 && set "PY_CALL=python"
+)
+
+rem -- final fallback: search for python.exe directly on the PATH
 if not defined PY_CALL (
   for %%P in (python.exe) do if exist "%%~$PATH:P" set "PY_CALL=%%~$PATH:P"
 )
@@ -35,9 +69,10 @@ if not defined PY_CALL (
   pause
   exit /b 1
 )
-for /f "tokens=2 delims= " %%v in ('%PY_CALL% -V') do set "PY_VER=%%v"
-echo Using Python: %PY_CALL%  (version %PY_VER%)
-call :log "Using Python: %PY_CALL% (%PY_VER%)"
+
+for /f "tokens=2 delims= " %%v in ('%PY_CALL% %PY_ARGS% -V') do set "PY_VER=%%v"
+echo Using Python: %PY_CALL% %PY_ARGS%  (version %PY_VER%)
+call :log "Using Python: %PY_CALL% %PY_ARGS% (%PY_VER%)"
 
 :: ---------------- USER INPUT ----------------
 echo.
@@ -46,17 +81,30 @@ set "COMFY_PATH="
 set /p COMFY_PATH=ComfyUI path []: 
 set "COMFY_PATH=!COMFY_PATH:\"=!"
 
+rem Normalize backslashes in the user-supplied ComfyUI path. Double the
+rem backslash (\) to escape it in .env, producing values like
+rem K:\\ComfyUI... so that Python does not interpret sequences like \C as
+rem invalid escape sequences. Delayed expansion ensures the replacement
+rem happens after removing any surrounding quotes.
+set "COMFY_PATH=!COMFY_PATH:\=\\!"
+
 echo.
 echo Enter absolute path to ComfyUI Mini start script. Leave blank if not used.
 set "MINI_PATH="
 set /p MINI_PATH=Mini path []: 
 set "MINI_PATH=!MINI_PATH:\"=!"
 
+rem Normalize backslashes in Mini path
+set "MINI_PATH=!MINI_PATH:\=\\!"
+
 echo.
 echo Enter absolute path to Smart Gallery start script (smartgallery.py). Leave blank if not used.
 set "SMART_GALLERY_PATH="
 set /p SMART_GALLERY_PATH=Smart Gallery path []: 
 set "SMART_GALLERY_PATH=!SMART_GALLERY_PATH:\"=!"
+
+rem Normalize backslashes in Smart Gallery path
+set "SMART_GALLERY_PATH=!SMART_GALLERY_PATH:\=\\!"
 
 set "COMFY_PORT="
 set /p COMFY_PORT=ComfyUI port [8188]: 
@@ -88,8 +136,11 @@ set "DELETE_PATH="
 set /p DELETE_PATH=Delete target path []: 
 set "DELETE_PATH=!DELETE_PATH:\"=!"
 
+rem Normalize backslashes in delete target path
+set "DELETE_PATH=!DELETE_PATH:\=\\!"
+
 :: ---------------- NETWORK INFO ----------------
-for /f "usebackq tokens=*" %%I in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1'} | Select -First 1 -ExpandProperty IPAddress)"`) do set "LAN_IP=%%I"
+for /f "usebackq tokens=*" %%I in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1' } | Select-Object -First 1 -ExpandProperty IPAddress)"`) do set "LAN_IP=%%I"
 if not defined LAN_IP set "LAN_IP=127.0.0.1"
 echo Detected LAN IP: %LAN_IP%
 call :log "LAN IP: %LAN_IP%"
@@ -102,7 +153,7 @@ if not exist "%VENV%" (
   echo.
   echo Creating Python venv...
   call :log "Creating venv"
-  %PY_CALL% -m venv "%VENV%"
+  "%PY_CALL%" %PY_ARGS% -m venv "%VENV%"
   if errorlevel 1 (
     echo Failed to create venv. Will continue without a venv.
     call :log "WARN: venv creation failed"
@@ -110,28 +161,35 @@ if not exist "%VENV%" (
   )
 )
 
+rem Set the interpreter to use for pip/install operations.  By default use the
+rem detected Python command and version args; switch to the venv interpreter
+rem if it exists and venv creation didn't fail.
 set "PY_EXE=%PY_CALL%"
-if defined USE_VENV if exist "%VENV_PY%" set "PY_EXE=%VENV_PY%"
-echo Using interpreter for installs: %PY_EXE%
-call :log "Installer Python: %PY_EXE%"
+set "PY_OPTS=%PY_ARGS%"
+if defined USE_VENV if exist "%VENV_PY%" (
+  set "PY_EXE=%VENV_PY%"
+  set "PY_OPTS="
+)
+echo Using interpreter for installs: %PY_EXE% %PY_OPTS%
+call :log "Installer Python: %PY_EXE% %PY_OPTS%"
 
 :: ---------------- PIP & REQUIREMENTS ----------------
 echo.
 echo Upgrading pip...
 call :log "Upgrading pip"
 if "%PY_EXE%"=="%VENV_PY%" (
-  "%PY_EXE%" -m pip install --upgrade pip
+  "%PY_EXE%" %PY_OPTS% -m pip install --upgrade pip
 ) else (
-  "%PY_EXE%" -m pip install --upgrade pip --user
+  "%PY_EXE%" %PY_OPTS% -m pip install --upgrade pip --user
 )
 
 echo Installing Pocket Comfy requirements...
 call :log "Installing requirements.txt"
 if exist "%ROOT%requirements.txt" (
   if "%PY_EXE%"=="%VENV_PY%" (
-    "%PY_EXE%" -m pip install -r "%ROOT%requirements.txt"
+    "%PY_EXE%" %PY_OPTS% -m pip install -r "%ROOT%requirements.txt"
   ) else (
-    "%PY_EXE%" -m pip install -r "%ROOT%requirements.txt" --user
+    "%PY_EXE%" %PY_OPTS% -m pip install -r "%ROOT%requirements.txt" --user
   )
 ) else (
   echo requirements.txt not found. Skipping pip install.
