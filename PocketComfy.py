@@ -1,4 +1,5 @@
 import os, sys, time, socket, shutil, threading, subprocess, psutil, base64, hmac, platform
+import re
 from typing import Optional, Set
 from collections import deque
 from datetime import timedelta
@@ -49,10 +50,6 @@ FLASK_PORT                    = _intenv("FLASK_PORT", 5000)
 FORCE_FREE_COMFY_PORT         = os.getenv("FORCE_FREE_COMFY_PORT", "1") != "0"
 FORCE_FREE_MINI_PORT          = os.getenv("FORCE_FREE_MINI_PORT", "1") != "0"
 FORCE_FREE_SMART_GALLERY_PORT = os.getenv("FORCE_FREE_SMART_GALLERY_PORT", "1") != "0"
-
-
-
-# ========================= CONFIG =========================
 
 
 # ========================= APP/STATE ======================
@@ -315,44 +312,93 @@ def wait_for_gallery_ready(timeout_secs: int) -> bool:
         time.sleep(2)
     return is_port_in_use(SMART_GALLERY_PORT_DEFAULT)
 
+# Helper to patch invalid escape sequences in the Smart Gallery script
+def _patch_invalid_escape_sequences(py_file: str) -> None:
+    """
+    Attempt to patch known invalid escape sequences in a Python file.
+
+    Some ComfyUI Smart Gallery distributions embed absolute Windows paths in
+    string literals without escaping backslashes (e.g. BASE_OUTPUT_PATH = 'C:\\ComfyUI\\path').
+    On Python 3.12+, unrecognised escape sequences like '\\C' produce a SyntaxWarning and may become
+    fatal in future versions. To avoid this, convert assignments of the form
+    `<NAME> = '<drive>:\\...'` to raw strings by inserting an 'r' prefix before the opening quote.
+    For example, `BASE_OUTPUT_PATH = 'C:\\path'` becomes `BASE_OUTPUT_PATH = r'C:\\path'`.
+
+    The patch is idempotent: lines already using a raw string prefix are left unchanged.
+    Any errors during patching are ignored.
+    """
+    try:
+        with open(py_file, 'r', encoding='utf-8') as _f:
+            lines = _f.readlines()
+    except Exception:
+        return
+    modified = False
+    patched_lines: list[str] = []
+    assignment_re = re.compile(r"^(\s*\w+\s*=\s*)'([A-Za-z]:\\\\[^']*)'")
+    for line in lines:
+        m = assignment_re.match(line)
+        if m and " r'" not in line:
+            prefix, path_str = m.groups()
+            patched_lines.append(f"{prefix}r'{path_str}'\n")
+            modified = True
+        else:
+            patched_lines.append(line)
+    if modified:
+        try:
+            with open(py_file, 'w', encoding='utf-8') as _f:
+                _f.writelines(patched_lines)
+        except Exception:
+            pass
+
 def launch_gallery() -> bool:
+    """
+    Launch the Smart Gallery process if configured.
+
+    On Windows the Smart Gallery script may embed absolute Windows paths in
+    string literals without escaping backslashes, which triggers
+    `SyntaxWarning: invalid escape sequence` under Python 3.12+. To avoid
+    this, the Smart Gallery file is patched immediately before launch to
+    convert assignments like `BASE_OUTPUT_PATH = 'C:\\foo'` to raw strings
+    (`BASE_OUTPUT_PATH = r'C\\foo'`). If the patch fails or the file is
+    missing, the original script is used as-is.
+
+    Additionally, the `PYTHONWARNINGS` environment variable is set to
+    ignore `SyntaxWarning` for the Smart Gallery process to suppress any
+    remaining warnings. This environment variable only applies to the child
+    process.
+    """
     if platform.system() != "Windows":
         print("[WARN] launch_gallery skipped: not running on Windows.")
         return False
     if not SMART_GALLERY_PATH:
-        print("[INFO] Smart Gallery launcher not configured. Skipping start."); return True
+        print("[INFO] Smart Gallery launcher not configured. Skipping start"); return True
     if not os.path.exists(SMART_GALLERY_PATH):
         print(f"[WARN] Smart Gallery script not found: {SMART_GALLERY_PATH}. Skipping."); return True
+
+    # Patch the Smart Gallery script to escape backslashes in string literals
+    _patch_invalid_escape_sequences(SMART_GALLERY_PATH)
+
     try:
         if FORCE_FREE_SMART_GALLERY_PORT and is_port_in_use(SMART_GALLERY_PORT_DEFAULT):
             free_port(SMART_GALLERY_PORT_DEFAULT, "Smart Gallery")
         exe = sys.executable  # use same interpreter/console
         print(f"[INFO] Launching Smart Gallery: {SMART_GALLERY_PATH}")
+        # Prepare environment for the child process; suppress SyntaxWarning
+        env = os.environ.copy()
+        env.setdefault('PYTHONWARNINGS', 'ignore::SyntaxWarning')
         with lock:
             processes["gallery"] = subprocess.Popen(
                 [exe, "-u", SMART_GALLERY_PATH],
                 cwd=os.path.dirname(SMART_GALLERY_PATH),
+                env=env,
             )
         return True
     except Exception as e:
         print(f"[ERROR] Failed to launch Smart Gallery: {e}")
         return False
 
-    deadline = time.time() + timeout_secs
-    while time.time() < deadline:
-        if is_port_in_use(COMFY_PORT_DEFAULT):
-            detected_ports["comfy"] = COMFY_PORT_DEFAULT; return True
-        if not comfy_running_by_handle():
-            time.sleep(1); continue
-        with lock: p = processes.get("comfy")
-        try: proc = psutil.Process(p.pid)
-        except Exception: time.sleep(1); continue
-        ports = _listen_ports(proc)
-        if ports:
-            best = COMFY_PORT_DEFAULT if COMFY_PORT_DEFAULT in ports else sorted(ports)[0]
-            detected_ports["comfy"] = best; return True
-        time.sleep(2)
-    return is_port_in_use(COMFY_PORT_DEFAULT)
+    # Note: Any fallback logic to probe ComfyUI ports is removed from launch_gallery.
+    # The function returns above on success or failure.
 
 def launch_both():
     if not launch_comfy(): return
@@ -465,13 +511,15 @@ LOGIN_TEMPLATE = """
   --kb-shift: 0px; /* dynamic shift when keyboard shows */
 }
 
-/* ===== Fill the entire viewport with our gradient (fixes black bottom band) ===== */
-*{box-sizing:border-box}
-html,body{height:100%; min-height:100dvh; min-height:100svh;}
-html{ background-color:var(--bg); }
-html::before{
-  content:"";
-  position:fixed; inset:0; z-index:-1; pointer-events:none;
+/* ===== Fill the entire viewport with our gradient (fixes black top/bottom bands) ===== */
+*{box-sizing:border-box
+  margin:0; color:var(--txt);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+html,body{height:100%;}
+body{ /* backdrop lives on body now to avoid iOS/Safari gaps */
+  min-height:100svh; min-height:100lvh; min-height:100dvh;
   background:
     radial-gradient(1600px 1100px at 50% -280px, rgba(168,110,255,.20), transparent 70%),
     radial-gradient(1400px 1000px at 100% -160px, rgba(0,217,255,.12), transparent 65%),
@@ -479,16 +527,14 @@ html::before{
     linear-gradient(180deg, rgba(7,8,20,.98), rgba(7,8,20,.98)),
     var(--bg);
   background-repeat:no-repeat;
+  background-attachment:fixed;
   background-size:cover;
   -webkit-transform:translateZ(0);
   will-change:transform;
 }
 
-body{
-  margin:0; color:var(--txt);
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
-  -webkit-text-size-adjust:100%;
-}
+
+
 
 /* layout */
 .wrap{max-width:520px;margin:9vh auto 8vh;padding:0 20px}
@@ -541,6 +587,17 @@ body.kb-open .wrap{ padding-bottom: calc(env(safe-area-inset-bottom) + 90px); }
 @supports not (padding-bottom: env(safe-area-inset-bottom)){
   body.kb-open .wrap{ padding-bottom: 90px; }
 }
+
+/* --- Stability for sticky header & vivid green lock text --- */
+.header{transform:translateZ(0);-webkit-transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden;will-change:transform;contain:paint}
+.statusHot{color:#40f19a;font-weight:800}
+
+
+/* soften all status dots a bit */
+.mode-dot{opacity:.55}
+
+/* shutdown status styling */
+#headerBar.statusComplete{color:#ff5f6d;font-weight:800}
 </style></head><body>
 <div class="wrap">
   <div class="hero">
@@ -913,6 +970,14 @@ iframe{ width:100%; height:100%; border:0; display:block; background:#0b0c1a; }
 }
 @supports (-webkit-touch-callout: none) { .frameWrap{ bottom:0; } }
 @media (max-width:360px){ .title{ font-size:.86rem; } }
+
+/* --- Stability for sticky header & vivid green lock text --- */
+.header{transform:translateZ(0);-webkit-transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden;will-change:transform;contain:paint}
+.statusHot{color:#40f19a;font-weight:800}
+/* shutdown status styling */
+#headerBar.statusComplete{color:#ff5f6d;font-weight:800}
+
+
 </style></head><body>
 
   <div class="topbar-wrap">
@@ -1194,6 +1259,14 @@ iframe{ width:100%; height:100%; border:0; display:block; background:#0b0c1a; }
   .topbar-wrap{ display:none !important; }
   .frameWrap{ top:0 !important; border:0 !important; }
 }
+
+/* --- Stability for sticky header & vivid green lock text --- */
+.header{transform:translateZ(0);-webkit-transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden;will-change:transform;contain:paint}
+.statusHot{color:#40f19a;font-weight:800}
+/* shutdown status styling */
+#headerBar.statusComplete{color:#ff5f6d;font-weight:800}
+
+
 </style></head><body>
 
   <div class="topbar-wrap">
@@ -1482,6 +1555,14 @@ iframe{ width:100%; height:100%; border:0; display:block; background:#0b0c1a; }
   .topbar-wrap{ display:none !important; }
   .frameWrap{ top:0 !important; border:0 !important; }
 }
+
+/* --- Stability for sticky header & vivid green lock text --- */
+.header{transform:translateZ(0);-webkit-transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden;will-change:transform;contain:paint}
+.statusHot{color:#40f19a;font-weight:800}
+/* shutdown status styling */
+#headerBar.statusComplete{color:#ff5f6d;font-weight:800}
+
+
 </style></head><body>
 
   <div class="topbar-wrap">
@@ -1568,158 +1649,7 @@ document.getElementById('refreshBtn').addEventListener('click', async () => {
 </body></html>
 """
 
-
-
-
-
-
-# ---------- COMFYUI WRAPPER PAGE (border + top control panel; hides in landscape) ----------
-COMFYUI_WRAPPER = """
-<!doctype html><html lang="en"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>ComfyUI • Pocket Comfy</title>
-<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black">
-<style>
-:root{
-  --bg0:#0a0b1e; --panel:#121436; --text:#eaf6ff;
-  --accent4:#17d5ff; --accent6:#7a5cff;
-  --radius:14px;
-}
-*{box-sizing:border-box}
-html,body{height:100%;margin:0;background:var(--bg0);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-
-/* layout */
-.wrapper{min-height:100dvh;display:flex;flex-direction:column}
-.pc-top{
-  position:sticky;top:0;z-index:20;
-  display:flex;align-items:center;justify-content:space-between;gap:10px;
-  padding: max(10px, env(safe-area-inset-top)) 12px 10px 12px;
-  background:linear-gradient(180deg, rgba(18,19,54,.95), rgba(18,19,54,.86));
-  border-bottom:1px solid #2a2f73;
-  box-shadow:0 2px 10px rgba(0,0,0,.55);
-}
-.pc-title{font-weight:800;letter-spacing:.2px}
-.pc-actions{display:flex;gap:10px}
-
-/* GPU-lit buttons */
-.tBtn{
-  appearance:none;border:0;border-radius:12px;
-  padding:10px 12px;font-weight:800;cursor:pointer;color:#f3f6ff;background:#0b0c1a;
-  position:relative;overflow:hidden;isolation:isolate;contain:paint;
-  box-shadow:0 10px 18px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
-}
-.tBtn span{position:relative;z-index:2}
-.tBtn::before{
-  content:"";position:absolute;inset:-2px;border-radius:inherit;pointer-events:none;
-  background:conic-gradient(from var(--ang,0deg), rgba(23,213,255,.45), rgba(122,92,255,.35), rgba(23,213,255,.45));
-  filter:blur(10px);opacity:0;transition:opacity .18s ease;
-}
-.tBtn:hover::before,.tBtn:focus-visible::before{opacity:.9;animation:spin 2.4s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-
-/* frame + thin border */
-.frameWrap{flex:1;padding:10px}
-.frameBorder{
-  position:relative;height:100%;border-radius:var(--radius);overflow:hidden;
-  background:linear-gradient(180deg, rgba(255,255,255,.02), transparent), var(--panel);
-  border:1px solid #2a2f73; box-shadow:0 8px 18px rgba(0,0,0,.45);
-}
-.frameBorder::after{
-  content:"";position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;
-  background:linear-gradient(90deg, rgba(23,213,255,.35), rgba(122,92,255,.25));
-  mix-blend-mode:screen;opacity:.35
-}
-#comfyFrame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
-
-/* page open/refresh glow */
-.page-glow{
-  position:fixed;inset:0;pointer-events:none;z-index:9999;
-  background:
-    radial-gradient(1200px 1200px at 50% -10%, rgba(23,213,255,.38), transparent 55%),
-    radial-gradient(900px 900px at 100% 0, rgba(122,92,255,.28), transparent 60%);
-  filter:blur(12px) saturate(120%);
-  opacity:0;transform:translateZ(0) scale(.86);
-  animation:pg 640ms cubic-bezier(.22,.61,.36,1) forwards;
-  will-change:transform,opacity,filter;contain:paint
-}
-@keyframes pg{0%{opacity:0;transform:scale(.86)}20%{opacity:.65}100%{opacity:0;transform:scale(1.08)}}
-
-/* Landscape: hide top/border for max canvas */
-@media (orientation: landscape){
-  .pc-top{display:none}
-  .frameWrap{padding:0}
-  .frameBorder{border:0;border-radius:0;box-shadow:none}
-}
-
-@media (prefers-reduced-motion: reduce){
-  .tBtn::before{animation:none!important}
-  .page-glow{animation-duration:.01ms;animation-iteration-count:1}
-}
-</style>
-</head><body>
-<div class="wrapper">
-  <div class="pc-top">
-    <div class="pc-title">ComfyUI</div>
-    <div class="pc-actions">
-      <button class="tBtn" id="btnBack" type="button"><span>Back</span></button>
-      <button class="tBtn" id="btnRefresh" type="button"><span>Refresh</span></button>
-    </div>
-  </div>
-
-  <div class="frameWrap">
-    <div class="frameBorder">
-      <iframe id="comfyFrame" src="about:blank" allow="clipboard-read; clipboard-write"></iframe>
-    </div>
-  </div>
-</div>
-
-<script>
-const CSRF="{{ csrf_token }}";
-function glow(){ const g=document.createElement('div'); g.className='page-glow'; document.body.appendChild(g); setTimeout(()=>g.remove(),700); }
-
-async function setFrame(){
-  try{
-    const n = await (await fetch('/netinfo')).json();
-    const host = location.hostname || '127.0.0.1';
-    const port = (n && n.comfy_port) || 8188;
-    const url = (location.protocol === 'https:' ? 'http://' : 'http://') + host + ':' + port + '/';
-    const f = document.getElementById('comfyFrame');
-    if (f.dataset.src !== url){
-      f.dataset.src = url;
-      f.src = url;
-      glow();
-    }
-  }catch(_){
-    // leave iframe blank if netinfo unavailable
-  }
-}
-
-/* actions */
-document.getElementById('btnBack').addEventListener('click', ()=>{
-  if (history.length > 1) history.back(); else location.href='/';
-});
-document.getElementById('btnRefresh').addEventListener('click', ()=>{
-  const f=document.getElementById('comfyFrame');
-  if (f && f.dataset.src){
-    f.src = f.dataset.src.split('#')[0] + '#r=' + Date.now();
-    glow();
-  } else {
-    setFrame();
-  }
-});
-
-/* initial mount */
-document.addEventListener('DOMContentLoaded', setFrame);
-
-/* keep server session warm when visible */
-function ping(){ fetch('/activity',{method:'POST',headers:{'X-CSRF-Token':CSRF}}); }
-window.addEventListener('focus', ping);
-document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') ping(); });
-</script>
-</body></html>
-"""
-
-# ---------- MAIN CONTROL PAGE ----------        
+# ---------- MAIN CONTROL PAGE ----------         
 TEMPLATE = """
 <!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -1727,6 +1657,7 @@ TEMPLATE = """
 <link rel="apple-touch-icon" sizes="180x180" href="{{ apple_icon }}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{ favicon32 }}">
 <link rel="icon" type="image/png" sizes="16x16" href="{{ favicon16 }}">
+<link rel="preload" as="image" href="{{ url_for('static', filename='comfy-mascot.webp') }}{% if request.args.get('switched') %}?v={{ request.args.get('r','') }}{% endif %}">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black">
 <style>
 :root{
@@ -1734,6 +1665,15 @@ TEMPLATE = """
   --accent1:#a86eff; --accent2:#5e36ff; --accent3:#00d9ff;
   --accent4:#17d5ff; --accent5:#21a0ff; --accent6:#7a5cff;
   --radius:16px; --btn-radius:14px;
+
+  /* ===== GALLERY ICON NUDGE — TWEAK HERE =====
+     Increase/decrease to move the gallery logo horizontally. */
+  --gallery-icon-nudge-x: 4px;
+
+  /* ===== MINI ALIGN TWEAKS — TWEAK HERE =====
+     Shift Mini icon+label left and control Mini icon size. */
+  --mini-group-nudge-x: 15px;   /* move Mini icon+text left (increase to go further left) */
+  --mini-icon-size: 2.85em;     /* Mini icon size (was ~2.35em) */
 }
 *{box-sizing:border-box}
 body{
@@ -1747,7 +1687,7 @@ body{
 
 /* header/status */
 .header{
-  position:sticky;top:0;z-index:10;
+  position:sticky;top:0;z-index:1000;
   background:linear-gradient(180deg, rgba(18,19,54,.95), rgba(18,19,54,.85));
   padding:8px 10px; display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;
   box-shadow:0 2px 10px rgba(0,0,0,.5)
@@ -1830,23 +1770,28 @@ a.btnlink[aria-disabled="true"]{
 .ico{display:inline-flex;vertical-align:-0.2em;margin-right:.55rem}
 .ico svg{width:1.15em;height:1.15em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
+/* --- Non-selectable descriptive text --- */
+#headerBar, h1, .brand, .brand .title, .tiny, .muted, .statusLine, .sigLine, #netinfo, label, .modeBadge, .sep{
+  -webkit-user-select:none; user-select:none;
+}
+
 /* mode dots on Run Hidden/Visible */
 .mode-dot{position:absolute;right:10px;bottom:10px;width:10px;height:10px;border-radius:50%;border:2px solid rgba(255,255,255,.6);background:transparent}
 .mode-dot.on{background:#40f19a;border-color:#2cc67a}
+.mode-dot.off{ background:#ff4d6d; border-color:#ff2a4a; }
 .mode-dot.hidden{display:none}
 /* ensure dots above overlays */
 #visHideBtn .mode-dot, #visShowBtn .mode-dot{ z-index:3; }
 #visHideBtn .hold-fill, #visShowBtn .hold-fill{ z-index:1; }
 #visHideBtn::after, #visShowBtn::after{ z-index:0; }
-/* red/off state + gallery dot layering */
-.mode-dot.off{ background:#ff4d6d; border-color:#ff2a4a; }
+/* gallery dot layering */
 #openGalleryBtn .mode-dot{ z-index:3; }
 
 /* Open Mini/Open ComfyUI bracket sizing */
 .container>.panel:first-of-type{
-  margin-top:-42px;            /* touch mascot foot */
+  margin-top:-42px;
   padding-top:16px; 
-  padding-bottom:12px;         /* raised slightly to enclose the Mini button */
+  padding-bottom:12px;
 }
 .container>.panel:first-of-type .btnlink{
   display:flex; align-items:center; justify-content:center; gap:14px;
@@ -1877,13 +1822,17 @@ a.btnlink[aria-disabled="true"]{
 }
 #openMiniBtn .ico{ margin-right:.65rem; }
 #openMiniBtn .ico svg{ width:1.85em; height:1.85em; }
-/* Larger image icon to replace SVG, aligned inline */
-#openMiniBtn .ico img{ width:2.35em; height:2.35em; display:block; }
-/* tighter spacing */
+/* Mini icon size now controlled by variable */
+#openMiniBtn .ico img{ width:var(--mini-icon-size); height:var(--mini-icon-size); display:block; }
 #openMiniBtn{ gap:2px; }
 #openMiniBtn .label{
   display:flex; align-items:center; line-height:1; margin-top:-1px; letter-spacing:.2px;
-  margin-left:-8px; /* nudge text left */
+  margin-left:-8px;
+}
+/* Shift BOTH the Mini icon and its label left a smidge */
+#openMiniBtn > .ico,
+#openMiniBtn > .label{
+  transform: translateX(calc(-1 * var(--mini-group-nudge-x)));
 }
 #openMiniBtn:hover, #openMiniBtn:active{ transform:none; filter:none; }
 #openMiniBtn:focus-visible{
@@ -1929,13 +1878,13 @@ a.btnlink[aria-disabled="true"]{
   #openMiniBtn::before, #openMiniBtn::after{ animation:none; opacity:.35; }
 }
 
-/* SECONDARY: ComfyUI (light blue, flat) */
+/* SECONDARY: ComfyUI — BLACK, centered logo + LIGHT-BLUE FOG
+   Seamless loop: movement + a full fade-out at the end, fade-in at start */
 #openComfyUiBtn,
 #openComfyUiBtn:visited{
-  background:linear-gradient(90deg,#9ee6ff,#6fd3ff) !important; /* light blue */
-  color:#0b0c1a !important;
-  padding:27px 24px; 
-  font-size:1.22rem;
+  background:#000 !important;
+  color:#fff !important;
+  padding:30px 24px;
   border-radius:var(--btn-radius);
   border:1px solid rgba(255,255,255,.28);
   box-shadow:none !important;
@@ -1943,12 +1892,146 @@ a.btnlink[aria-disabled="true"]{
   text-shadow:none;
   transform:none !important;
 
-  display:flex; align-items:center; justify-content:center; gap:10px;
+  position:relative;
+  overflow:hidden;
+  isolation:isolate;
+  contain:paint;
+  clip-path: inset(0 round var(--btn-radius));
+
+  display:flex; align-items:center; justify-content:center; gap:0;
+
+  /* Positions */
+  --fog-offset: 38%;       /* bottom bank anchor (you already tuned this) */
+  --fog-top-lift: 16%;     /* how much higher the top wisps ride vs bottom */
 }
-#openComfyUiBtn::before, #openComfyUiBtn::after{ content:none !important; }
-#openComfyUiBtn .ico{ display:flex; align-items:center; margin:0; }
-#openComfyUiBtn .ico img{ width:2.0em; height:2.0em; display:block; }
-#openComfyUiBtn .label{ display:flex; align-items:center; line-height:1; letter-spacing:.2px; }
+#openComfyUiBtn .ico{
+  margin:0; flex:1 1 auto;
+  display:flex; align-items:center; justify-content:center;
+  position:relative; z-index:1;
+}
+#openComfyUiBtn .ico img{
+  width:clamp(170px,66%,320px); height:auto; display:block; transform:translateX(6px);
+}
+
+/* Fog layers (bottom bank + higher wisps) */
+#openComfyUiBtn::before,
+#openComfyUiBtn::after{
+  content:"";
+  position:absolute; left:-6%; right:-6%;
+  bottom:-22%; /* seam hidden below button */
+  border-radius:inherit;
+  pointer-events:none; mix-blend-mode:screen;
+  clip-path: inset(-30% round var(--btn-radius));
+  will-change: transform, background-position, opacity, filter;
+  background-repeat:no-repeat;
+  -webkit-mask-image: radial-gradient(150% 120% at 50% 50%, #000 78%, transparent 100%);
+          mask-image: radial-gradient(150% 120% at 50% 50%, #000 78%, transparent 100%);
+  mask-mode:alpha;
+  opacity:0;
+}
+
+/* Bottom bank (~lower half). Duplicate stack for smooth slide. */
+#openComfyUiBtn::before{
+  height:72%;
+  transform: translateY(var(--fog-offset));
+  background:
+    radial-gradient(58% 40% at 10% 115%, rgba(140,210,255,.55) 0%, rgba(140,210,255,.30) 40%, rgba(140,210,255,0) 70%),
+    radial-gradient(64% 44% at 38% 112%, rgba(150,220,255,.52) 0%, rgba(150,220,255,.26) 42%, rgba(150,220,255,0) 72%),
+    radial-gradient(60% 42% at 66% 114%, rgba(140,210,255,.50) 0%, rgba(140,210,255,.25) 44%, rgba(140,210,255,0) 72%),
+    radial-gradient(58% 38% at 90% 116%, rgba(130,205,255,.46) 0%, rgba(130,205,255,.22) 40%, rgba(130,205,255,0) 70%),
+    radial-gradient(58% 40% at 10% 115%, rgba(140,210,255,.55) 0%, rgba(140,210,255,.30) 40%, rgba(140,210,255,0) 70%),
+    radial-gradient(64% 44% at 38% 112%, rgba(150,220,255,.52) 0%, rgba(150,220,255,.26) 42%, rgba(150,220,255,0) 72%),
+    radial-gradient(60% 42% at 66% 114%, rgba(140,210,255,.50) 0%, rgba(140,210,255,.25) 44%, rgba(140,210,255,0) 72%),
+    radial-gradient(58% 38% at 90% 116%, rgba(130,205,255,.46) 0%, rgba(130,205,255,.22) 40%, rgba(130,205,255,0) 70%);
+  background-size: 220% 130%;
+  background-position:
+    -40% 92%,   0% 90%,  40% 92%,  80% 94%,
+    -240% 92%, -200% 90%, -160% 92%, -120% 94%;
+  filter: blur(14px) saturate(200%) brightness(1.16);
+  animation:
+    fogBottomSlide 70s linear infinite,
+    fogBottomFade  70s ease-in-out infinite;
+}
+
+/* Higher, lighter wisps. Ride higher toward button middle. */
+#openComfyUiBtn::after{
+  height:110%; /* give the wisps more vertical reach */
+  transform: translateY(calc(var(--fog-offset) - var(--fog-top-lift)));
+
+  /* shift the gradient centers upward a bit */
+  background:
+    radial-gradient(40% 34% at 20% 62%, rgba(180,240,255,.30) 8%, rgba(180,240,255,.16) 38%, rgba(180,240,255,0) 64%),
+    radial-gradient(36% 30% at 55% 52%, rgba(190,245,255,.28) 8%, rgba(190,245,255,.14) 36%, rgba(190,245,255,0) 62%),
+    radial-gradient(34% 28% at 82% 58%, rgba(160,225,255,.26) 8%, rgba(160,225,255,.12) 34%, rgba(160,225,255,0) 60%),
+    radial-gradient(30% 26% at 40% 40%, rgba(190,245,255,.22) 8%, rgba(190,245,255,.10) 34%, rgba(190,245,255,0) 58%),
+    radial-gradient(28% 24% at 68% 36%, rgba(170,235,255,.20) 8%, rgba(170,235,255,.10) 32%, rgba(170,235,255,0) 56%),
+    radial-gradient(40% 34% at 20% 62%, rgba(180,240,255,.30) 8%, rgba(180,240,255,.16) 38%, rgba(180,240,255,0) 64%),
+    radial-gradient(36% 30% at 55% 52%, rgba(190,245,255,.28) 8%, rgba(190,245,255,.14) 36%, rgba(190,245,255,0) 62%),
+    radial-gradient(34% 28% at 82% 58%, rgba(160,225,255,.26) 8%, rgba(160,225,255,.12) 34%, rgba(160,225,255,0) 60%),
+    radial-gradient(30% 26% at 40% 40%, rgba(190,245,255,.22) 8%, rgba(190,245,255,.10) 34%, rgba(190,245,255,0) 58%),
+    radial-gradient(28% 24% at 68% 36%, rgba(170,235,255,.20) 8%, rgba(170,235,255,.10) 32%, rgba(170,235,255,0) 56%);
+  background-size: 240% 160%, 240% 160%, 240% 160%, 260% 170%, 260% 170%, 240% 160%, 240% 160%, 240% 160%, 260% 170%, 260% 170%;
+  background-position:
+    -80% 72%,  -30% 64%,   20% 68%,   60% 54%,  100% 50%,
+    -280% 72%, -230% 64%, -180% 68%, -140% 54%, -100% 50%;
+  filter: blur(16px) saturate(190%) brightness(1.10);
+  animation:
+    fogTopSlide 45s linear infinite,
+    fogTopFade  45s ease-in-out infinite,
+    fogTopBreath 7s ease-in-out infinite alternate;
+}
+
+/* --- Movement (seamless) --- */
+@keyframes fogBottomSlide{
+  0%{
+    background-position:
+      -40% 92%,   0% 90%,  40% 92%,  80% 94%,
+      -240% 92%, -200% 90%, -160% 92%, -120% 94%;
+  }
+  100%{
+    background-position:
+      160% 92%, 200% 90%, 240% 92%, 280% 94%,
+      -40% 92%,   0% 90%,  40% 92%,  80% 94%;
+  }
+}
+@keyframes fogTopSlide{
+  0%{
+    background-position:
+      -80% 72%,  -30% 64%,  20% 68%,  60% 54%, 100% 50%,
+      -280% 72%, -230% 64%, -180% 68%, -140% 54%, -100% 50%;
+  }
+  100%{
+    background-position:
+      120% 72%, 170% 64%, 220% 68%, 260% 54%, 300% 50%,
+      -80% 72%,  -30% 64%,  20% 68%,  60% 54%, 100% 50%;
+  }
+}
+
+/* --- Fade envelopes --- */
+@keyframes fogBottomFade{
+  0%   { opacity:0; }
+  10%  { opacity:.52; }
+  90%  { opacity:.52; }
+  100% { opacity:0; }
+}
+@keyframes fogTopFade{
+  0%   { opacity:0; }
+  12%  { opacity:.38; }
+  88%  { opacity:.40; }
+  100% { opacity:0; }
+}
+
+/* Subtle breathing for the top wisps */
+@keyframes fogTopBreath{
+  0%   { filter:blur(15px) saturate(185%) brightness(1.08); }
+  100% { filter:blur(18px) saturate(200%) brightness(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce){
+  #openComfyUiBtn::before, #openComfyUiBtn::after{
+    animation:none; opacity:.24;
+  }
+}
 
 /* Unify ALL other buttons to dark (keep Open Mini aurora, Shutdown red) */
 .restart,.stop,.delete,.recreate,.vis{
@@ -1956,59 +2039,125 @@ a.btnlink[aria-disabled="true"]{
   color:#f3f6ff !important; border:1px solid rgba(255,255,255,.14);
 }
 
-/* === NEW: GALLERY button (paint-splash aesthetic) === */
-.gallery{
-  color:#0b0c1a !important;
-  background:
-    radial-gradient(140px 80px at 85% 15%, rgba(255,255,255,.22), rgba(255,255,255,0) 60%),
-    radial-gradient(200px 120px at 12% 18%, rgba(255,84,122,.42), rgba(255,84,122,0) 62%),
-    radial-gradient(200px 120px at 88% 68%, rgba(74,213,255,.42), rgba(74,213,255,0) 62%),
-    radial-gradient(160px 110px at 30% 78%, rgba(170,110,255,.40), rgba(170,110,255,0) 60%),
-    linear-gradient(90deg, #ffe57f, #ff9e80 28%, #a77bff 60%, #6de3ff 90%);
-  border:1px solid rgba(255,255,255,.16);
+/* === GALLERY button — MAGENTA × DARK BLUE aura around icon+title === */
+#openGalleryBtn{
+  padding:27px 24px;
+  font-size:1.22rem;
+  border-radius:var(--btn-radius);
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  box-shadow:none !important;
+  backdrop-filter:none !important;
 }
-.gallery .ico{margin-right:.55rem}
-.gallery .ico svg{width:1.25em;height:1.25em}
-.gallery:focus-visible{
-  outline:none;
-  box-shadow:
-    0 0 0 3px rgba(255,180,80,.28),
-    0 0 0 1px #2a2f73,
-    0 14px 26px rgba(0,0,0,.55),
-    inset 0 1px 0 rgba(255,255,255,.10),
-    inset 0 -2px 0 rgba(0,0,0,.45);
+
+/* Core button */
+.gallery{
+  position:relative;
+  color:#fff !important;
+  background:#000;                    /* solid base */
+  border:1px solid rgba(255,255,255,.16);
+  overflow:hidden;                     /* confine glow */
+  isolation:isolate;
+  clip-path: inset(0 round var(--btn-radius));
+  animation:none !important;           /* stop old paint-splash animation */
+}
+
+/* Aura layers (confined to button) */
+.gallery::before,
+.gallery::after{
+  content:"";
+  position:absolute; inset:-8%;
+  border-radius:inherit;
+  pointer-events:none;
+  mix-blend-mode:screen;
+  will-change:transform, opacity, filter;
+  clip-path: inset(0 round var(--btn-radius));
+}
+
+/* Inner magenta core + soft ring */
+.gallery::before{
+  background:
+    radial-gradient(60% 60% at var(--gallery-aura-x,52%) var(--gallery-aura-y,50%),
+      rgba(255, 40, 170, .55) 0%,
+      rgba(255, 40, 170, .28) 26%,
+      rgba(255, 40, 170, .10) 48%,
+      rgba(255, 40, 170, 0)   64%),
+    radial-gradient(95% 95% at var(--gallery-aura-x,52%) var(--gallery-aura-y,50%),
+      rgba(255, 40, 170, .18) 12%,
+      rgba(255, 40, 170, 0)   58%);
+  filter: blur(12px) saturate(180%);
+  opacity:.42;
+  transform:scale(.92);
+  animation:galleryAuraPulse 6.5s ease-in-out infinite;
+}
+
+/* Outer dark-blue halo + faint magenta echo */
+.gallery::after{
+  background:
+    radial-gradient(110% 110% at var(--gallery-aura-x,52%) var(--gallery-aura-y,50%),
+      rgba(30, 56, 255, .34) 8%,
+      rgba(30, 56, 255, .16) 40%,
+      rgba(30, 56, 255, 0)   70%),
+    radial-gradient(130% 130% at var(--gallery-aura-x,52%) var(--gallery-aura-y,50%),
+      rgba(255, 40, 170, .10) 0%,
+      rgba(255, 40, 170, 0)   60%);
+  filter: blur(16px) saturate(180%);
+  opacity:.30;
+  transform:scale(.88);
+  animation:galleryAuraHalo 9s ease-in-out infinite;
+}
+
+/* Icon sizing + tiny horizontal nudge stays */
+.gallery .ico{ margin-right:.55rem; }
+.gallery .ico img,
+.gallery .ico svg{
+  width:2.0em; height:2.0em; display:block;
+  transform:translateX(var(--gallery-icon-nudge-x));
+}
+
+/* Pulse outward, then breathe back in */
+@keyframes galleryAuraPulse{
+  0%   { transform:scale(.90); opacity:.36; filter:blur(11px) saturate(170%); }
+  50%  { transform:scale(1.06); opacity:.50; filter:blur(14px) saturate(190%); }
+  100% { transform:scale(.90); opacity:.36; filter:blur(11px) saturate(170%); }
+}
+
+/* Slower, larger halo for depth */
+@keyframes galleryAuraHalo{
+  0%   { transform:scale(.86); opacity:.26; filter:blur(15px) saturate(170%); }
+  50%  { transform:scale(1.10); opacity:.34; filter:blur(18px) saturate(190%); }
+  100% { transform:scale(.86); opacity:.26; filter:blur(15px) saturate(170%); }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .gallery::before, .gallery::after{ animation:none; opacity:.26; }
 }
 
 label{font-size:.9rem;color:#c7d0ff;text-align:left;display:block;margin:0 4px 8px}
 .pwdwrap{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 input[type=password],input[type=text]{flex:1;padding:14px;font-size:1rem;border-radius:12px;border:1px solid #2f3472;outline:none;background:#141549;color:var(--text);text-align:center}
-/* Eye toggle button */
 .eye{width:46px;height:46px;border-radius:10px;border:1px solid #2f3472;background:#141549;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
-/* FORCE larger icon (covers Safari/iOS) */
 #toggleEye svg, #mpEyeIcon{width:28px!important;height:28px!important;display:block;flex:0 0 28px;}
-/* fallback */
 .eye svg{width:28px;height:28px;stroke:#cfe3ff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
 .status{text-align:center;color:#c4ccff;font-size:.95rem;margin:12px 0 6px}
 .muted{color:#8aa;font-size:.88rem;word-break:break-all;margin-top:10px}
 .muted + .muted{margin-top:4px}
-/* button description spacing */
 .tiny{color:#9ab;font-size:.86rem;margin:4px 0 10px}
 
 /* Network panel + mascot */
 .netPanel{ position:relative; overflow:hidden; }
-.net{font-size:.95rem;line-height:1.55;color:#d9e4ff; padding-right:clamp(96px, 38%, 200px);}
+.net{font-size:.95rem;line-height:1.55;color:#d9e4ff; padding-right:clamp(96px, 40%, 180px);}
 .net .ipline{text-align:center;font-weight:800;margin-bottom:6px;font-size:1.05rem;color:#c6dcff}
 .net .ports{display:flex;flex-direction:column;gap:4px}
 .matrixMascot{
   position:absolute;
   right:8px;
-  bottom:-45px;         /* lowered */
+  bottom:-45px;
   width:clamp(96px, 40%, 180px);
   height:auto;
   pointer-events:none;
   user-select:none;
-  opacity:.80;          /* ~20% more blended */
+  opacity:.80;
   filter:drop-shadow(0 4px 12px rgba(0,0,0,.45));
 }
 
@@ -2025,7 +2174,6 @@ input[type=password],input[type=text]{flex:1;padding:14px;font-size:1rem;border-
 }
 .shutdown.holding{ animation:holdPulseRed 1.1s ease-in-out infinite }
 
-/* (extra soft GPU glow while holding, layered under content) */
 .shutdown{ position:relative; isolation:isolate; contain:paint; }
 .shutdown.holding::before{
   content:""; position:absolute; inset:-10px; border-radius:inherit; pointer-events:none;
@@ -2071,7 +2219,7 @@ input[type=password],input[type=text]{flex:1;padding:14px;font-size:1rem;border-
   border:1px solid #2a2f73;
   border-radius:var(--radius);
   box-shadow:0 8px 18px rgba(0,0,0,.45);
-  position:relative; /* allow absolute-positioned links */
+  position:relative;
 }
 
 }
@@ -2138,14 +2286,22 @@ a.btnlink:focus-visible, button:focus-visible{
   display:block; width:44px; height:44px;
   -webkit-tap-highlight-color:transparent; outline:none; border:none;
 }
-.bmacLink:focus, .bmacLink:focus-visible{ outline:none; }
+.bmacLink:focus, .ghLink:focus-visible{ outline:none; }
 .bmacLink img{ display:block; width:100%; height:100%; pointer-events:none; user-select:none; }
+
+/* --- Stability for sticky header & vivid green lock text --- */
+.header{transform:translateZ(0);-webkit-transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden;will-change:transform;contain:paint}
+.statusHot{color:#40f19a;font-weight:800}
+/* shutdown status styling */
+#headerBar.statusComplete{color:#ff5f6d;font-weight:800}
+
+
 </style></head><body>
 <div class="header" id="headerBar">Loading status…</div>
 
 <h1>
   <span class="brand">
-    <span class="mascot"><a href="https://github.com/PastLifeDreamer/Pocket-Comfy" target="_blank" rel="noopener"><img src="{{ url_for('static', filename='comfy-mascot.webp') }}" alt="Mascot"></a></span>
+    <span class="mascot"><a href="https://github.com/PastLifeDreamer/Pocket-Comfy" target="_blank" rel="noopener"><img id="mascotImg" src="{{ url_for('static', filename='comfy-mascot.webp') }}{% if request.args.get('switched') %}?v={{ request.args.get('r','') }}{% endif %}" alt="Mascot" fetchpriority="high" loading="eager" decoding="async"></a></span>
     <span class="title">Pocket Comfy</span>
   </span>
 </h1>
@@ -2155,31 +2311,31 @@ a.btnlink:focus-visible, button:focus-visible{
   <div class="panel">
     <a class="btnlink" id="openMiniBtn" href="#">
       <span class="ico">
-        <img src="{{ url_for('static', filename='Comfy-Mini.webp') }}" alt="" width="32" height="32" decoding="async" loading="eager">
+        <img src="{{ url_for('static', filename='Comfy-Mini.webp') }}" alt="" decoding="async" loading="eager">
       </span>
       <span class="label">Comfy Mini</span>
+          <span id="miniDot" class="mode-dot"></span>
     </a>
   </div>
 
-  <!-- Panel 2: ComfyUI (light blue, flat) -->
+  <!-- Panel 2: ComfyUI (black, logo-only) -->
   <div class="panel">
     <!-- IMPORTANT: link directly to wrapper route so border/top panel render and port 8188 loads inside it -->
-    <a class="btnlink" id="openComfyUiBtn" href="/comfyui">
+    <a class="btnlink" id="openComfyUiBtn" href="/comfyui" aria-label="Open ComfyUI">
       <span class="ico">
-        <img src="{{ url_for('static', filename='Comfy-UI.webp') }}" alt="" width="32" height="32" decoding="async" loading="eager">
+        <img src="{{ url_for('static', filename='comfyui-text.webp') }}" alt="Comfy" decoding="async" loading="eager">
       </span>
-      <span class="label">ComfyUI</span>
+          <span id="comfyDot" class="mode-dot"></span>
     </a>
   </div>
 
-  <!-- Panel 3: Gallery (its own bracket, same size scale as action buttons) -->
+  <!-- Panel 3: Gallery (same bracket size as ComfyUI) -->
   <div class="panel">
     <button class="gallery" id="openGalleryBtn">
       <span class="ico">
-        <!-- palette icon -->
-        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 00-9 9 7 7 0 007 7h2a3 3 0 003-3 2 2 0 012-2h.5A4.5 4.5 0 0019 9 6 6 0 0012 3z"/><circle cx="7.5" cy="10" r="1.2"/><circle cx="10.5" cy="7.5" r="1.2"/><circle cx="14.5" cy="7.8" r="1.2"/><circle cx="16" cy="11" r="1.2"/></svg>
+        <img src="{{ url_for('static', filename='ModernMinimalGalleryLogo.webp') }}" alt="" width="32" height="32" decoding="async" loading="eager">
       </span>
-      Gallery
+      Smart Gallery
       <span id="galleryDot" class="mode-dot"></span>
     </button>
   </div>
@@ -2269,26 +2425,53 @@ async function checkPw(){ const res=await fetch('/checkpw',{method:'POST',header
 function schedulePwCheck(){ clearTimeout(pwTimer); pwTimer=setTimeout(checkPw,180); }
 pwd.addEventListener('input',schedulePwCheck); checkPw();
 
-function setModeDots(mode){ const hd=document.getElementById('hiddenDot'), vd=document.getElementById('visibleDot'); if(mode==='off'){ hd.classList.add('hidden'); vd.classList.add('hidden'); hd.classList.remove('on'); vd.classList.remove('on'); return; } hd.classList.remove('hidden'); vd.classList.remove('hidden'); hd.classList.toggle('on', mode==='hidden'); vd.classList.toggle('on', mode==='visible'); }
+/* restore + enforce mode dots */
+function setModeDots(mode){
+  const hd=document.getElementById('hiddenDot'), vd=document.getElementById('visibleDot');
+  if(!hd || !vd) return;
+  ['hidden','on','off'].forEach(c=>{ hd.classList.remove(c); vd.classList.remove(c); });
+  if(mode==='off'){ hd.classList.add('hidden'); vd.classList.add('hidden'); return; }
+  const m=(mode==='hidden'||mode==='visible')?mode:'visible';
+  if(m==='hidden'){ hd.classList.add('on'); vd.classList.add('off'); }
+  else{ vd.classList.add('on'); hd.classList.add('off'); }
+}
+/* show a default immediately (updated by /status) */
+setModeDots('visible');
 
 const header = document.getElementById('headerBar');
+// Global status-lock to hold a message during mode switch
+window.__statusLockMsg = null;
 const checkSVG = '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
 const xSVG     = '<svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 let stoppedOverride = false;
 let restartInProgress = false;
 function badge(ok,label){ return `<span class="badge ${ok?'ok':'bad'}">${ok?checkSVG:xSVG}<span>${label} ${ok?'Running':'Stopped'}</span></span>`; }
 function renderHeader(s, forceBadges=false){
-  if(!s){ header.textContent='Status unavailable'; return; }
+  // Respect lock message during mode switch
+  if (window.__statusLockMsg){ header.style.color='#40f19a'; header.style.fontWeight='800'; header.style.color='#40f19a'; header.style.fontWeight='800'; header.style.color='#40f19a'; header.style.fontWeight='800'; header.textContent = window.__statusLockMsg; return; }
+  
+  // During shutdown, force red dots and hold message
+  if (stoppedOverride){
+    header.textContent='Shutting down…';
+    setModeDots('off');
+    try { ['galleryDot','comfyDot','miniDot'].forEach(id=>{ const d=document.getElementById(id); if(d){ d.classList.remove('on','off','hidden'); d.classList.add('off'); }});} catch(_){/* no-op */}
+    return;
+  }
+if(!s){ header.textContent='Status unavailable'; return; }
   const bothDown = !s.comfy && !s.mini;
   if(bothDown && !(forceBadges || stoppedOverride)){
-    header.textContent='Shutdown Complete';
+    header.textContent='Shutdown Complete'; header.classList.add('statusComplete'); header.classList.add('statusComplete');
     setModeDots('off');
-  } else {
+  } else { header.classList.remove('statusComplete'); 
     header.innerHTML=`${badge(s.comfy,'ComfyUI')}<span class="sep">•</span>${badge(s.mini,'Mini')}`;
     setModeDots(bothDown ? 'off' : (s.mode_hidden?'hidden':'visible'));
     const gdot=document.getElementById('galleryDot');
     if(gdot){ gdot.classList.remove('on','off','hidden'); gdot.classList.add(s.gallery ? 'on' : 'off'); }
-  }
+    const cdot=document.getElementById('comfyDot');
+    if(cdot){ cdot.classList.remove('on','off','hidden'); cdot.classList.add(s.comfy ? 'on' : 'off'); }
+    const mdot=document.getElementById('miniDot');
+    if(mdot){ mdot.classList.remove('on','off','hidden'); mdot.classList.add(s.mini ? 'on' : 'off'); }
+}
   if (restartInProgress && s.comfy && s.mini){
     toast('Comfy + Mini back online');
     restartInProgress = false;
@@ -2302,14 +2485,14 @@ function renderModeBadge(s){
   box.querySelector('span').textContent='Mode: '+(s.mode_hidden?'Hidden':'Visible');
   box.style.display='inline-flex';
 }
-async function refreshHeader(){ try{ const s=await (await fetch('/status')).json(); renderHeader(s); }catch{ header.textContent="Status unavailable"; } }
+async function refreshHeader(){ try{ const s=await (await fetch('/status')).json(); renderHeader(s); }catch{ if(!window.__statusLockMsg){ header.textContent="Status unavailable"; } } }
 setInterval(refreshHeader,1000); refreshHeader();
 
 async function refreshNet(){ try{  const n=await (await fetch('/netinfo')).json(); const ip=n.lan_ip||'127.0.0.1', rc=n.flask_port||5000, c=n.comfy_port||8188, m=n.mini_port||3000, g=n.gallery_port||8189; document.getElementById('netinfo').innerHTML=`<div class="ipline"><strong>${ip}</strong></div><div class="ports"><div><strong>Remote Control Port:</strong> ${rc}</div><div><strong>ComfyUI Port:</strong> ${c}</div><div><strong>ComfyUI Mini Port:</strong> ${m}</div><div><strong>Smart Gallery Port:</strong> ${g}</div></div>`;  } catch {  document.getElementById('netinfo').textContent="Network info unavailable.";  } }
 setInterval(refreshNet,5000); refreshNet();
 
 /* press-and-hold helper */
-function holdFill(btnId, fillId, dur, onComplete, reqEnabled=true, hooks={}){ const btn=document.getElementById(btnId), fill=document.getElementById(fillId); let timer=null, raf=null, start=0, finished=false; function startHold(e){ e.preventDefault(); if (reqEnabled && btn.disabled) return; if (timer) return; start=performance.now(); finished=false; fill.style.width='0%'; timer=setTimeout(async()=>{ finished=true; cancelAnimationFrame(raf); fill.style.width='100%'; hooks.onFinish && hooks.onFinish(btn, e); await onComplete(e); }, dur); hooks.onStart && hooks.onStart(btn, e); animate(); } function animate(){ const pct=Math.min(100, ((performance.now()-start)/dur)*100); fill.style.width=pct+'%'; if (timer) raf=requestAnimationFrame(animate); } function cancelHold(e){ if (e) e.preventDefault(); if (timer){ clearTimeout(timer); timer=null; } cancelAnimationFrame(raf); raf=null; fill.style.width='0%'; if (!finished && hooks.onCancel) hooks.onCancel(btn, e); finished=false; } btn.addEventListener('pointerdown',startHold,{passive:false}); ['pointerup','pointerleave','pointercancel'].forEach(ev=>btn.addEventListener(ev,cancelHold,{passive:false})); ['selectstart','contextmenu','dragstart'].forEach(ev=>btn.addEventListener(ev,e=>e.preventDefault())); }
+function holdFill(btnId, fillId, dur, onComplete, reqEnabled=true, hooks={}){ const btn=document.getElementById(btnId), fill=document.getElementById(fillId); let timer=null, raf=null, start=0, finished=false; function startHold(e){ e.preventDefault(); if (reqEnabled && btn.disabled) return; if (timer) return; start=performance.now(); finished=false; fill.style.width='0%'; timer=setTimeout(async()=>{ finished=true; cancelAnimationFrame(raf); fill.style.width='100%'; hooks.onFinish && hooks.onFinish(btn, e); await onComplete(e); }, dur); hooks.onStart && hooks.onStart(btn, e); animate(); } function animate(){ const pct=Math.min(100, ((performance.now()-start)/dur)*100); fill.style.width=pct+'%'; if (timer) raf=requestAnimationFrame(animate); } function cancelHold(e){ if (e) e.preventDefault(); if (timer){ clearTimeout(timer); timer=null; } cancelAnimationFrame(raf); raf=null; fill.style.width='0%'; if (!finished && hooks.onCancel) hooks.onCancel(btn, e); finished=false; } btn.addEventListener('pointerdown',startHold,{passive:false}); ['pointerup','pointerleave','pointercancel'].forEach(ev=>btn.addEventListener(ev,cancelHold,{passive:false})); }
 
 /* GPU red explosion on release + full disable */
 holdFill('shutdownBtn','shutdownFill',3000, async(e)=>{
@@ -2324,13 +2507,15 @@ holdFill('shutdownBtn','shutdownFill',3000, async(e)=>{
   document.body.appendChild(blast);
 
   toast('Shutting down…');
-  disableAllControls();                 // greys out EVERY control, including both CTA links
-  await post('/shutdown');
+  disableAllControls();
+  stoppedOverride = true;
+try { ['galleryDot','comfyDot','miniDot'].forEach(id=>{ const d=document.getElementById(id); if(d){ d.classList.remove('on','off','hidden'); d.classList.add('off'); }});} catch(_){/* no-op */}
+await post('/shutdown');
   await waitForStopped(6000);
 }, false, { onStart:(b)=>b.classList.add('holding'), onCancel:(b)=>b.classList.remove('holding'), onFinish:(b)=>b.classList.remove('holding') });
 
-holdFill('visHideBtn','visHideFill',3000, async()=>{ disableAllControls(); toast('Switching to hidden…'); await post('/relaunch_hidden_full'); setTimeout(()=>{ location.replace('/login?switched=1&r='+Date.now()); }, 500); }, false);
-holdFill('visShowBtn','visShowFill',3000, async()=>{ disableAllControls(); toast('Switching to visible…'); await post('/relaunch_visible_full'); setTimeout(()=>{ location.replace('/login?switched=1&r='+Date.now()); }, 500); }, false);
+holdFill('visHideBtn','visHideFill',3000, async()=>{ disableAllControls(); window.__statusLockMsg = 'Cloaking PC Python Window…'; header.style.color='#40f19a'; header.style.fontWeight='800'; header.style.color='#40f19a'; header.style.fontWeight='800'; header.textContent = window.__statusLockMsg; toast('Cloaking PC Python Window…'); await post('/relaunch_hidden_full'); setTimeout(()=>{ location.replace('/login?switched=1&r='+Date.now()); }, 5600); }, false);
+holdFill('visShowBtn','visShowFill',3000, async()=>{ disableAllControls(); window.__statusLockMsg = 'Materializing PC Python Window…'; header.style.color='#40f19a'; header.style.fontWeight='800'; header.style.color='#40f19a'; header.style.fontWeight='800'; header.textContent = window.__statusLockMsg; toast('Materializing PC Python Window…'); await post('/relaunch_visible_full'); setTimeout(()=>{ location.replace('/login?switched=1&r='+Date.now()); }, 5600); }, false);
 holdFill('deleteBtn','deleteFill',3000, async()=>{ const ok=await post('/delete','password='+encodeURIComponent(pwd.value)); toast(ok?'Output folder deleted':'Wrong password or error'); });
 holdFill('recreateBtn','recreateFill',3000, async()=>{ const ok=await post('/recreate','password='+encodeURIComponent(pwd.value)); toast(ok?'Output folder recreated':'Wrong password or error'); });
 
@@ -2370,11 +2555,11 @@ async function waitForStopped(t=5000){
   while(performance.now()-st<t){
     try{
       const s=await (await fetch('/status')).json();
-      if(!s.comfy && !s.mini){ toast('Shutdown Complete'); renderHeader({comfy:false,mini:false}); return true; }
+      if(!s.comfy && !s.mini){ toast('Shutdown Complete'); stoppedOverride=false; renderHeader({comfy:false,mini:false}); return true; }
     }catch{ break; }
     await new Promise(r=>setTimeout(r,300));
   }
-  toast('Shutdown Complete'); renderHeader({comfy:false,mini:false}); return false;
+  toast('Shutdown Complete'); stoppedOverride=false; renderHeader({comfy:false,mini:false}); return false;
 }
 /* === Progressive haptic tap: Android (supported browsers) only === */
 const CAN_VIBRATE = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
@@ -2386,6 +2571,29 @@ document.addEventListener('click', (e) => {
   if (!el) return;
   hapticTap();
 }, { passive: true });
+
+/* --- Reliable mascot image loader w/ cache-busting after mode switch --- */
+function loadMascotReliably(){
+  const img = document.getElementById('mascotImg');
+  if(!img) return;
+  const base = img.getAttribute('src');
+  // If src already has a version/r param (set during mode switch), nothing to do.
+  if (/[?&](v|r)=/.test(base)) return;
+
+  let tries = 0, max = 5;
+  function bustOnce(){
+    const u = new URL(base, location.origin);
+    u.searchParams.set('v', Date.now().toString());
+    img.src = u.toString();
+  }
+  img.addEventListener('error', () => {
+    if(++tries < max) setTimeout(bustOnce, 200 * tries);
+  });
+  if (location.pathname === '/login' || /[?&]switched=1\b/.test(location.search)){
+    bustOnce();
+  }
+}
+document.addEventListener('DOMContentLoaded', loadMascotReliably);
 </script>
 </body></html>
 """
